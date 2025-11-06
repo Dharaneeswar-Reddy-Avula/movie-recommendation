@@ -43,6 +43,11 @@ class MovieOut(BaseModel):
     score: float
     poster_url: Optional[str] = None
 
+class MovieItem(BaseModel):
+    title: str
+    movie_id: int
+    poster_url: Optional[str] = None
+
 class RecommendResponse(BaseModel):
     query: str
     used_title: str
@@ -50,6 +55,10 @@ class RecommendResponse(BaseModel):
 
 class ErrorMessage(BaseModel):
     detail: str
+
+class AllMoviesResponse(BaseModel):
+    movies: List[MovieItem]
+    total: int
 
 def _resolve_title(raw: str) -> Optional[Tuple[str, int]]:
     norm = raw.strip().lower()
@@ -105,6 +114,22 @@ app = FastAPI(title="Movie Recommender", version="1.0")
 def health():
     sim_status = "loaded" if SIM is not None else "missing/invalid"
     return {"status": "ok", "movies": int(len(MOVIES)), "similarity_matrix": sim_status}
+
+@app.get("/movies", response_model=AllMoviesResponse)
+def get_all_movies():
+    """Return all movies in the database"""
+    movies_list = []
+    for _, row in MOVIES.iterrows():
+        # Generate poster URL using TMDB image URL pattern
+        poster_url = f"https://image.tmdb.org/t/p/w500/{row['movie_id']}" if 'movie_id' in row else None
+        movies_list.append(
+            MovieItem(
+                title=str(row["title"]),
+                movie_id=int(row["movie_id"]),
+                poster_url=poster_url,
+            )
+        )
+    return AllMoviesResponse(movies=movies_list, total=len(movies_list))
 
 @app.get("/recommend", response_model=RecommendResponse, responses={500: {"model": ErrorMessage}})
 def recommend_endpoint(movie: str, k: int = 5):
