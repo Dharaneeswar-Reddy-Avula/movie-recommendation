@@ -13,13 +13,15 @@ import requests
 
 
 
-
+TMDB_API_KEY = os.getenv("API_KEY", "")
 
 def fetch_poster(movie_id):
-   response=requests.get('https://api.themoviedb.org/3/movie/{}?api_key=9b5dd90a1a1c7870950088db33855bf7&language=en-US'.format(movie_id))
-   data=response.json()
+    response = requests.get(
+        f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_API_KEY}&language=en-US"
+    )
+    data=response.json()
   #  st.write(data)
-   return "https://image.tmdb.org/t/p/w500/"+ data['poster_path']
+    return "https://image.tmdb.org/t/p/w500/"+ data['poster_path']
 
 with open("movies.pkl", "rb") as f:
     MOVIES: pd.DataFrame = pickle.load(f)
@@ -154,7 +156,8 @@ def get_all_movies():
     movies_list = []
     for _, row in MOVIES.iterrows():
         # Generate poster URL using TMDB image URL pattern
-        poster_url = f"https://image.tmdb.org/t/p/w500/{row['movie_id']}" if 'movie_id' in row else None
+        movie_id = int(row["movie_id"])
+        poster_url = fetch_poster(movie_id)
         movies_list.append(
             MovieItem(
                 title=str(row["title"]),
