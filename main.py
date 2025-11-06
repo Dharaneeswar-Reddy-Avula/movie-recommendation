@@ -8,14 +8,18 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
-
+import requests
 # ---------- Load artifacts once at startup ----------
 
 
 
 
 
-
+def fetch_poster(movie_id):
+   response=requests.get('https://api.themoviedb.org/3/movie/{}?api_key=9b5dd90a1a1c7870950088db33855bf7&language=en-US'.format(movie_id))
+   data=response.json()
+  #  st.write(data)
+   return "https://image.tmdb.org/t/p/w500/"+ data['poster_path']
 
 with open("movies.pkl", "rb") as f:
     MOVIES: pd.DataFrame = pickle.load(f)
@@ -103,7 +107,10 @@ def _recommend(title: str, k: int = 5) -> Tuple[str, List[MovieOut]]:
         row = MOVIES.iloc[j]
         # Generate poster URL using TMDB image URL pattern
         # Using w500 size for poster images (500px wide)
-        poster_url = f"https://image.tmdb.org/t/p/w500/{row['movie_id']}" if 'movie_id' in row else None
+        poster_url = None
+
+        if "movie_id" in MOVIES.columns and not pd.isna(row["movie_id"]):
+            poster_url = fetch_poster(int(row["movie_id"]))   
         out.append(
             MovieOut(
                 title=str(row["title"]),
@@ -137,6 +144,9 @@ app.add_middleware(
 def health():
     sim_status = "loaded" if SIM is not None else "missing/invalid"
     return {"status": "ok", "movies": int(len(MOVIES)), "similarity_matrix": sim_status}
+
+
+
 
 @app.get("/movies", response_model=AllMoviesResponse)
 def get_all_movies():
