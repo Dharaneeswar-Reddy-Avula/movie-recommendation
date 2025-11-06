@@ -1,7 +1,7 @@
 import pickle
 import gzip
 from difflib import get_close_matches
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -12,11 +12,20 @@ from pydantic import BaseModel, Field
 with open("movies.pkl", "rb") as f:
     MOVIES: pd.DataFrame = pickle.load(f)
 
-# Replace this with your actual similarity matrix
-SIM = ...  # your numpy array
+# Initialize SIM with a default value
+SIM: Optional[np.ndarray] = None
 
-with gzip.open("similarity2.pkl.gz", "wb") as f:
-    pickle.dump(SIM, f)
+# Try to load the similarity matrix from the original file first
+try:
+    with gzip.open("similarity2.pkl.gz", "rb") as f:
+        loaded_sim = pickle.load(f)
+        # Check if the loaded object is actually a numpy array
+        if isinstance(loaded_sim, np.ndarray):
+            SIM = loaded_sim
+        else:
+            print("Warning: similarity2.pkl.gz did not contain a valid numpy array")
+except Exception as e:
+    print(f"Warning: Could not load similarity2.pkl.gz: {e}")
 
 if not {"movie_id", "title"}.issubset(MOVIES.columns):
     raise RuntimeError("movies.pkl must have columns: ['movie_id','title']")
@@ -39,7 +48,10 @@ class RecommendResponse(BaseModel):
     used_title: str
     results: List[MovieOut]
 
-def _resolve_title(raw: str):
+class ErrorMessage(BaseModel):
+    detail: str
+
+def _resolve_title(raw: str) -> Optional[Tuple[str, int]]:
     norm = raw.strip().lower()
     if norm in TITLE_TO_IDX:
         idx = TITLE_TO_IDX[norm]
@@ -50,25 +62,37 @@ def _resolve_title(raw: str):
         return MOVIES.loc[idx, "title"], idx
     return None
 
-def _recommend(title: str, k: int = 5):
+def _recommend(title: str, k: int = 5) -> Tuple[str, List[MovieOut]]:
+    # Check if similarity matrix is available
+    if SIM is None:
+        raise HTTPException(status_code=500, detail="Recommendation system not properly initialized: similarity matrix missing or invalid")
+    
     resolved = _resolve_title(title)
     if not resolved:
-        return None, []
+        return title, []  # Return the original title if not found
     used_title, idx = resolved
+    
+    # Check if idx is valid for the SIM array
+    if idx >= len(SIM):
+        raise HTTPException(status_code=500, detail="Internal error: index out of bounds for similarity matrix")
+    
     distances = SIM[idx]
     ranked = sorted(enumerate(distances), key=lambda x: x[1], reverse=True)
 
-    out = []
+    out: List[MovieOut] = []
     for j, score in ranked:
         if j == idx:
             continue
         row = MOVIES.iloc[j]
+        # Generate poster URL using TMDB image URL pattern
+        # Using w500 size for poster images (500px wide)
+        poster_url = f"https://image.tmdb.org/t/p/w500/{row['movie_id']}" if 'movie_id' in row else None
         out.append(
             MovieOut(
                 title=str(row["title"]),
                 movie_id=int(row["movie_id"]),
                 score=float(score),
-                poster_url=None,
+                poster_url=poster_url,
             )
         )
         if len(out) >= k:
@@ -79,11 +103,21 @@ app = FastAPI(title="Movie Recommender", version="1.0")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "movies": int(len(MOVIES))}
+    sim_status = "loaded" if SIM is not None else "missing/invalid"
+    return {"status": "ok", "movies": int(len(MOVIES)), "similarity_matrix": sim_status}
 
-@app.post("/recommend", response_model=RecommendResponse)
-def recommend_endpoint(req: RecommendRequest):
-    used_title, items = _recommend(req.title, req.k)
-    if not items:
-        raise HTTPException(status_code=404, detail="Title not found or no recommendations.")
-    return RecommendResponse(query=req.title, used_title=used_title, results=items)
+@app.get("/recommend", response_model=RecommendResponse, responses={500: {"model": ErrorMessage}})
+def recommend_endpoint(movie: str, k: int = 5):
+    if k < 1 or k > 50:
+        raise HTTPException(status_code=400, detail="k must be between 1 and 50")
+    try:
+        used_title, items = _recommend(movie, k)
+        if not items:
+            raise HTTPException(status_code=404, detail="Title not found or no recommendations.")
+        return RecommendResponse(query=movie, used_title=used_title, results=items)
+    except Exception as e:
+        # Re-raise HTTP exceptions
+        if isinstance(e, HTTPException):
+            raise e
+        # Handle unexpected errors
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
