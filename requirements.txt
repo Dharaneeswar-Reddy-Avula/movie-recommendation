@@ -1,7 +1,7 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-pandas==2.2.3         # first pandas generally compatible with Python 3.13
-numpy==2.1.2          # NumPy 2.1 adds Python 3.13 support
+pandas==2.2.2
+numpy==1.26.4
 pydantic==2.9.2
-requests==2.34.0
+requests==2.32.3
 python-dotenv==1.0.1
