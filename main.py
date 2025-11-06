@@ -2,13 +2,21 @@ import pickle
 import gzip
 from difflib import get_close_matches
 from typing import List, Optional, Tuple
-
+import os
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from fastapi.middleware.cors import CORSMiddleware
 
 # ---------- Load artifacts once at startup ----------
+
+
+
+
+
+
+
 with open("movies.pkl", "rb") as f:
     MOVIES: pd.DataFrame = pickle.load(f)
 
@@ -109,6 +117,21 @@ def _recommend(title: str, k: int = 5) -> Tuple[str, List[MovieOut]]:
     return used_title, out
 
 app = FastAPI(title="Movie Recommender", version="1.0")
+
+
+ALLOW_ORIGINS = os.getenv(
+    "ALLOW_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,https://movie-recommendation-jhn8.onrender.com"
+).split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in ALLOW_ORIGINS],
+    allow_credentials=True,      # set False if you’re not using cookies/auth
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
 @app.get("/health")
 def health():
